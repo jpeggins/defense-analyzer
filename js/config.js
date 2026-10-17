@@ -12,7 +12,7 @@ const CFG = {
         sleeperApi: 'https://api.sleeper.app/v1',
         openMeteo: 'https://api.open-meteo.com/v1/forecast',
     },
-    CACHE_TTL_HOURS: 6,
+    CACHE_TTL_HOURS: 12,           // nflverse/Sleeper refresh daily; half a day keeps launches instant
     HISTORY_MIN_SEASON: 2007,          // box-score components fully available
     HISTORY_DEFAULT_START: 2016,       // recommended window (modern era-ish)
     MODEL: {

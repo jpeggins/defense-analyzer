@@ -67,7 +67,7 @@ Run the Backtest tab yourself — those numbers are computed live from raw data,
 - [Sleeper public API](https://docs.sleeper.app) — NFL state, users, leagues, rosters, scoring settings
 - [Open-Meteo](https://open-meteo.com) — wind & precipitation forecasts around game day
 
-Season files are cached in `localStorage` for ~6 hours.
+Season files are cached in `localStorage` for ~12 hours (a returning visitor downloads nothing on launch).
 
 ## Limitations (read me)
 
