@@ -6,9 +6,8 @@
    ================================================================ */
 const CFG = {
     DATA: {
-        // nflverse public GitHub release assets (CORS-enabled, refreshed ~daily)
-        games: 'https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv',
-        statsTeam: (season) => `https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_${season}.csv.gz`,
+        // same-origin pre-sliced nflverse data (refreshed nightly by .github/workflows)
+        local: 'data/',
         sleeperApi: 'https://api.sleeper.app/v1',
         openMeteo: 'https://api.open-meteo.com/v1/forecast',
     },

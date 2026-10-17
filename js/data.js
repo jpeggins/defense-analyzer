@@ -1,8 +1,9 @@
 /* ================================================================
    D/ST Streamer — data access layer.
-   Fetches nflverse games + weekly team stats (csv/csv.gz), parses and
-   projects to minimal columns, caches daily in localStorage.
-   Also Sleeper API helpers and Open-Meteo weather lookups.
+   Game data is served SAME-ORIGIN from /data/*.json.gz (kept fresh by a
+   nightly GitHub Action running scripts/refresh_data.py — no third-party
+   CORS dependencies). Sleeper + Open-Meteo remain live API calls (both
+   send proper CORS headers). Parsed payloads cached in localStorage ~12h.
    ================================================================ */
 const Store = {
     get(key) {
@@ -17,136 +18,100 @@ const Store = {
     },
     put(key, data) {
         try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data })); }
-        catch (e) { /* quota exceeded — memory cache still serves this session */ }
+        catch (e) { /* quota — memory cache still serves this session */ }
     },
 };
 const MemCache = new Map();
 
-async function fetchText(url) {
+async function fetchBytes(url) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-        if (typeof DecompressionStream === 'undefined')
-            throw new Error('This browser cannot decompress .csv.gz files (needs Safari 16+/Chrome).');
-        const ds = new Response(
-            new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip')));
-        return await ds.text();
-    }
-    return new TextDecoder().decode(buf);
+    return new Uint8Array(await res.arrayBuffer());
+}
+async function gunzip(bytes) {
+    if (!(bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b))
+        return new TextDecoder().decode(bytes);          // plain json fallback
+    if (typeof DecompressionStream === 'undefined')
+        throw new Error('This browser cannot read .gz files (needs Safari 16+/Chrome).');
+    const ds = new Response(new Blob([bytes]).stream()
+        .pipeThrough(new DecompressionStream('gzip')));
+    return await ds.text();
+}
+async function loadJsonGz(url) {
+    return JSON.parse(await gunzip(await fetchBytes(url)));
 }
 
-/* Minimal RFC-4180 CSV parser (handles quoted fields with commas/newlines). */
-function parseCSV(text) {
-    const rows = [];
-    let row = [], field = '', inQ = false;
-    for (let i = 0; i < text.length; i++) {
-        const c = text[i];
-        if (inQ) {
-            if (c === '"') {
-                if (text[i + 1] === '"') { field += '"'; i++; }
-                else inQ = false;
-            } else field += c;
-        } else if (c === '"') inQ = true;
-        else if (c === ',') { row.push(field); field = ''; }
-        else if (c === '\n') { row.push(field); field = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; }
-        else if (c !== '\r') field += c;
-    }
-    if (field !== '' || row.length) { row.push(field); rows.push(row); }
-    return rows;
-}
-function csvObjects(text) {
-    const rows = parseCSV(text);
-    const head = rows.shift();
-    return rows.map(r => {
-        const o = {};
-        for (let i = 0; i < head.length; i++) o[head[i]] = r[i];
-        return o;
-    });
-}
-const _num = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : 0; };
+/* Per-season database (memory + localStorage persistence). */
+const YDB = { games: new Map(), stats: new Map(), done: new Set(), busy: new Map() };
 
-/* ---------------- games.csv (scores + schedule, all seasons) ---------------- */
-async function loadGames(onProgress) {
-    const key = 'ds:games:v1';
-    const cached = Store.get(key) || MemCache.get(key);
-    if (cached) return cached;
-    if (onProgress) onProgress('Loading NFL schedule & scores…');
-    const objs = csvObjects(await fetchText(CFG.DATA.games));
-    const games = [];
-    for (const r of objs) {
-        const gt = r.game_type;
-        if (gt === 'PRE') continue;
-        games.push({
-            gid: r.game_id, season: _num(r.season), week: _num(r.week),
-            post: gt !== 'REG', date: r.gameday,
-            away: normTeam(r.away_team), home: normTeam(r.home_team),
-            as: r.away_score === '' ? null : _num(r.away_score),
-            hs: r.home_score === '' ? null : _num(r.home_score),
-            loc: r.location, roof: (r.roof || '').toLowerCase(), stadium: r.stadium_id || '',
-        });
-    }
-    MemCache.set(key, games); Store.put(key, games);
-    return games;
+async function loadOnce(key, urlFactory) {
+    const mem = MemCache.get(key);
+    if (mem) return mem;
+    const ls = Store.get(key);
+    if (ls) { MemCache.set(key, ls); return ls; }
+    const data = await loadJsonGz(urlFactory());
+    MemCache.set(key, data); Store.put(key, data);
+    return data;
 }
-
-/* ---------------- stats_team_week_{season}.csv.gz ---------------- */
-async function loadSeasonStats(season, onProgress) {
-    const key = `ds:st:${season}:v1`;
-    const cached = Store.get(key) || MemCache.get(key);
-    if (cached) return cached;
-    if (onProgress) onProgress(`Loading ${season} team box stats…`);
-    const objs = csvObjects(await fetchText(CFG.DATA.statsTeam(season)));
-    const rows = [];
-    for (const r of objs) {
-        rows.push({
-            gid: r.game_id, team: normTeam(r.team), post: r.season_type === 'POST' ? 1 : 0,
-            oi: _num(r.passing_interceptions),               // own offense INTs thrown
-            ol: _num(r.sack_fumbles_lost) + _num(r.rushing_fumbles_lost) + _num(r.receiving_fumbles_lost),
-            osk: _num(r.sacks_suffered), oa: _num(r.attempts),
-            opy: _num(r.passing_yards), ory: _num(r.rushing_yards), osy: _num(r.sack_yards_lost),
-            opc: _num(r.carries),
-            dsk: _num(r.def_sacks), din: _num(r.def_interceptions), dff: _num(r.def_fumbles_forced),
-            dtd: _num(r.def_tds), std: _num(r.special_teams_tds), dsa: _num(r.def_safeties),
-            dbk: _num(r.fg_blocked) + _num(r.pat_blocked),
-        });
-    }
-    MemCache.set(key, rows); Store.put(key, rows);
-    return rows;
+/* Ensure one season's games + stats are loaded. Safe to await concurrently. */
+function ensureYear(season) {
+    if (YDB.done.has(season)) return Promise.resolve(true);
+    if (YDB.busy.has(season)) return YDB.busy.get(season);
+    const p = (async () => {
+        const gkey = `ds:g:${season}:v2`, skey = `ds:s:${season}:v2`;
+        let games = [];
+        try { games = await loadOnce(gkey, () => `${CFG.DATA.local}games_${season}.json.gz`); }
+        catch (e) { console.warn(`no games for ${season}`, e.message); }
+        let stats = [];
+        try { stats = await loadOnce(skey, () => `${CFG.DATA.local}stats_${season}.json.gz`); }
+        catch (e) { console.warn(`no stats for ${season}`, e.message); }
+        for (const g of games) YDB.games.set(g.gid, g);
+        if (stats.length) YDB.stats.set(season, stats);
+        if (games.length && stats.length) YDB.done.add(season);
+        return true;
+    })().finally(() => YDB.busy.delete(season));
+    YDB.busy.set(season, p);
+    return p;
 }
-
-async function loadAllSeasonStats(startSeason, endSeason, onProgress) {
-    const out = {};
-    const seasons = [];
-    for (let s = Math.max(CFG.HISTORY_MIN_SEASON, startSeason); s <= endSeason; s++) seasons.push(s);
+/* Games rows only (for schedule questions like week pickers without history). */
+async function loadSeasonGames(season) {
+    try { return await loadOnce(`ds:g:${season}:v2`, () => `${CFG.DATA.local}games_${season}.json.gz`); }
+    catch (e) { return []; }
+}
+async function ensureYears(from, to, onProgress) {
+    const need = [];
+    for (let s = from; s <= to; s++) if (!YDB.done.has(s)) need.push(s);
     let done = 0;
-    const POOL = 4;
-    let idx = 0;
+    const POOL = 6;
+    let i = 0;
     async function worker() {
-        while (idx < seasons.length) {
-            const s = seasons[idx++];
-            out[s] = await loadSeasonStats(s, onProgress);
-            done++;
-            if (onProgress) onProgress(`Loaded ${done}/${seasons.length} season files`);
+        while (i < need.length) {
+            const s = need[i++];
+            await ensureYear(s);
+            if (onProgress) onProgress(`Loaded ${++done}/${need.length} season datasets`);
         }
     }
-    await Promise.all(Array.from({ length: Math.min(POOL, seasons.length) }, worker));
-    return out;
+    await Promise.all(Array.from({ length: Math.min(POOL, need.length) || 1 }, worker));
+}
+async function loadMeta() {
+    try {
+        return await loadOnce('ds:meta:v2', () => `${CFG.DATA.local}meta.json.gz`);
+    } catch (e) { return null; }
 }
 
-/* Build chronological per-team-game records joining box stats with final scores. */
-function buildRecords(games, statsBySeason) {
-    const gById = new Map(games.map(g => [g.gid, g]));
+/* Build chronological per-team-game records joining box stats with scores. */
+function buildRecords(statsBySeason) {
     const recs = [];
-    for (const seasonStr of Object.keys(statsBySeason)) {
+    for (const [seasonStr, rows] of statsBySeason) {
+        const season = Number(seasonStr);
         const byGid = new Map();
-        for (const t of statsBySeason[seasonStr]) {
+        for (const t of rows) {
             let e = byGid.get(t.gid);
             if (!e) byGid.set(t.gid, e = {});
             e[t.team] = t;
         }
         for (const [gid, sides] of byGid) {
-            const g = gById.get(gid);
+            const g = YDB.games.get(gid);
             if (!g || g.as === null || g.hs === null) continue;     // unplayed
             const a = sides[g.away], h = sides[g.home];
             if (!a || !h || a.post || h.post) continue;             // regular season only
@@ -207,9 +172,7 @@ const leagueDetail = (lid) => sleeper(`/league/${lid}`);
 const leagueRosters = (lid) => sleeper(`/league/${lid}/rosters`);
 
 /* ---------------- Weather (Open-Meteo, no key) ---------------- */
-/* Returns map "lat,lng|date" -> {windKmH, precipMm}. Silent on failure. */
 async function fetchWeather(points, dates) {
-    // points: [{lat,lng}], dates: ['YYYY-MM-DD'] within forecast window
     const uniqCoords = [];
     const seenC = new Set();
     for (const p of points) {

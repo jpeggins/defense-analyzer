@@ -44,13 +44,13 @@ function seasonOptions() {
     for (let s = cur + 1; s >= CFG.HISTORY_MIN_SEASON; s--) out.push({ v: s, l: s });
     return out;
 }
-function refreshWeekOptions() {
+async function refreshWeekOptions() {
     const season = +$('#selSeason').value;
     let weeks = [];
-    if (APP.games) {
-        const w = new Set(APP.games.filter(g => g.season === season && !g.post).map(g => g.week));
-        weeks = [...w].sort((a, b) => a - b);
-    } else weeks = Array.from({ length: 18 }, (_, i) => i + 1);
+    let rows = gamesForSeason(season);
+    if (!rows.length) rows = await loadSeasonGames(season);      // small single-file fetch
+    weeks = [...new Set(rows.map(g => g.week))].sort((a, b) => a - b);
+    if (!weeks.length) weeks = Array.from({ length: 18 }, (_, i) => i + 1);
     const cur = +$('#selWeek').value;
     fillSelect($('#selWeek'), weeks.map(w => ({ v: w, l: 'Week ' + w })), weeks.includes(cur) ? cur : weeks[Math.floor(weeks.length / 3)] || 1);
 }
@@ -72,31 +72,27 @@ function currentCfg() {
 
 /* ---------------- data plumbing ---------------- */
 async function ensureData(targetSeason, forceStart) {
-    if (!APP.games) APP.games = await loadGames(m => setStatus('#startStatus', m));
     const start = Math.max(CFG.HISTORY_MIN_SEASON,
         Math.min(forceStart ?? APP.histStart, targetSeason - 5));
     const end = targetSeason;
-    APP.fullStats = APP.fullStats || {};
-    const missing = [];
-    for (let s = start; s <= end; s++) if (!APP.fullStats[s]) missing.push(s);
-    if (missing.length) {
-        setStatus('#startStatus', `Loading ${missing.length} season file(s)…`);
-        let done = 0;
-        await Promise.all(missing.map(async s => {
-            APP.fullStats[s] = await loadSeasonStats(s, null);
-            setStatus('#startStatus', `Loaded ${++done}/${missing.length} season files`);
-        }));
-        APP.recsFull = buildRecords(APP.games, APP.fullStats);
-    } else {
-        APP.recsFull = APP.recsFull || buildRecords(APP.games, APP.fullStats);
-    }
+    setStatus('#startStatus', `Loading ${start}–${end} datasets…`);
+    await ensureYears(start, end, m => setStatus('#startStatus', m));
+    rebuildRecords();
     applyView(start, end);
 }
+function rebuildRecords() {
+    const subset = [...YDB.stats.entries()].sort((a, b) => a[0] - b[0]);
+    APP.recsFull = buildRecords(subset);
+}
 function applyView(start, end) {
+    if (!APP.recsFull) rebuildRecords();
     APP.recs = APP.recsFull.filter(r => r.season >= start && r.season <= end);
     APP.events = buildWeekEvents(APP.recs);
     APP.recIdx = new Map(APP.recs.map(r => [`${r.season}:${r.week}:${r.team}`, r]));
     APP.loadedRange = [start, end];
+}
+function gamesForSeason(season) {
+    return [...YDB.games.values()].filter(g => g.season === season && !g.post);
 }
 
 /* ---------------- weekly advice ---------------- */
@@ -111,7 +107,7 @@ async function analyzeWeek(auto = false) {
         const { tracker } = trainTracker(APP.events, season, week);
         APP.lastTracker = tracker;
 
-        const fixtures = APP.games.filter(g => g.season === season && g.week === week && !g.post);
+        const fixtures = gamesForSeason(season).filter(g => g.week === week);
         const bundles = [];
         for (const g of fixtures) {
             const neutral = g.loc === 'Neutral';
@@ -522,7 +518,7 @@ async function chooseLeague() {
         const nameOf = new Map(users.map(u => [u.user_id, u.display_name || u.username]));
         const defsByOwner = new Map();
         const ownersWithDef = new Set();
-        for (const t of APP.games ? Object.keys(TEAMS) : []) defsByOwner.set(t, []);
+        for (const t of Object.keys(TEAMS)) defsByOwner.set(t, []);
         for (const ros of rosters) {
             const owner = nameOf.get(ros.owner_id) || ('roster ' + ros.roster_id);
             const d = (ros.players || []).find(p => TEAMS[p] && !/^\d+$/.test(p));
@@ -574,7 +570,7 @@ async function boot() {
     $('#selScoring').addEventListener('change', () => { rerenderSlate(); });
     $('#chkWeather').addEventListener('change', () => analyzeWeek());
     $('#btnAnalyze').addEventListener('click', () => analyzeWeek());
-    $('#selSeason').addEventListener('change', () => { refreshWeekOptions(); });
+    $('#selSeason').addEventListener('change', () => { refreshWeekOptions().then(() => analyzeWeek()); });
     $('#selWeek').addEventListener('change', () => analyzeWeek());
     $('#btnHistory').addEventListener('click', () => withProgress('#histProgress', loadHistory()));
     $('#selHistStart').addEventListener('change', () => withProgress('#histProgress', loadHistory()));
@@ -596,17 +592,23 @@ async function boot() {
     fillSelect($('#selSeason'), seasonOptions(), APP.currentSeason);
     fillSelect($('#selHistStart'), seasonOptions().filter(o => o.v <= APP.currentSeason), APP.histStart);
     fillSelect($('#selBtStart'), seasonOptions().filter(o => o.v >= CFG.HISTORY_MIN_SEASON + 4 && o.v <= APP.currentSeason - 1), 2020);
-    refreshWeekOptions();
+    await refreshWeekOptions();
+    const meta = await loadMeta();
+    if (meta?.updated_utc) {
+        const el = $('#dataFresh');
+        if (el) el.textContent = ' · data refreshed ' + meta.updated_utc.slice(0, 16).replace('T', ' ') + ' UTC';
+    }
 
-    // auto-target: earliest week with unfinished games
+    // auto-target: earliest week of current season with unfinished games
     try {
-        if (!APP.games) APP.games = await loadGames(m => setStatus('#startStatus', m));
-        const fut = APP.games.filter(g => !g.post && g.as === null && g.date >= APP.todayISO)
+        await ensureYear(APP.currentSeason);
+        const rows = gamesForSeason(APP.currentSeason);
+        const fut = rows.filter(g => g.as === null && g.date >= APP.todayISO)
             .sort((a, b) => a.date < b.date ? -1 : 1)[0];
-        const target = fut || APP.games.filter(g => !g.post).sort((a, b) => a.date > b.date ? -1 : 1)[0];
-        if (target && target.season === APP.currentSeason) {
+        const target = fut || rows.sort((a, b) => a.date > b.date ? -1 : 1)[0];
+        if (target) {
             $('#selSeason').value = String(target.season);
-            refreshWeekOptions();
+            await refreshWeekOptions();
             $('#selWeek').value = String(target.week);
         }
         await analyzeWeek(true);

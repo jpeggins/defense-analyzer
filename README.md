@@ -61,13 +61,17 @@ on 2020–2026 regular-season weeks (~110+ weeks, never peeking at future data):
 
 Run the Backtest tab yourself — those numbers are computed live from raw data, not hardcoded.
 
-## Data sources (all free/CORS-friendly, refreshed daily)
+## Data pipeline (no CORS headaches, no server)
 
-- [nflverse](https://nflverse.com) — `games.csv` (schedule/scores/venues) + `stats_team_week_{year}.csv.gz` (team box scores) from GitHub releases
-- [Sleeper public API](https://docs.sleeper.app) — NFL state, users, leagues, rosters, scoring settings
-- [Open-Meteo](https://open-meteo.com) — wind & precipitation forecasts around game day
+All game data is served **same-origin from this repo** (`/data/*.json.gz`) — a nightly GitHub Action
+(`refresh-data.yml`) runs `scripts/refresh_data.py`, which pulls fresh nflverse releases, projects them
+to minimal gzipped JSON per season (~400 KB for twenty years total), and commits only changed files.
+Historical seasons freeze once complete; the active season refreshes daily through the year, including
+future-dated fixtures and flex changes. Visitors therefore touch only three hosts: your Pages domain
+(all stats), `api.sleeper.app` (league tab), and `api.open-meteo.com` (optional weather) — both APIs send
+proper CORS headers. Parsed payloads stay in localStorage ~12 hours.
 
-Season files are cached in `localStorage` for ~12 hours (a returning visitor downloads nothing on launch).
+Sources: [nflverse](https://nflverse.com) · [Sleeper public API](https://docs.sleeper.app) · [Open-Meteo](https://open-meteo.com). All free/public data; unofficial fan project — not affiliated with or endorsed by the NFL or Sleeper.
 
 ## Limitations (read me)
 
