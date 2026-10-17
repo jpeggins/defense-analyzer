@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D/ST Streamer — Fantasy Defense Analyzer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container">
+
+  <header class="hero">
+    <h1>🛡️ D/ST Streamer</h1>
+    <p class="tagline">Multi-year defensive analysis &amp; weekly streaming advice for your Sleeper fantasy league</p>
+    <div class="credits">Data: <a href="https://nflverse.com" target="_blank" rel="noopener">nflverse</a> ·
+      <a href="https://docs.sleeper.app/" target="_blank" rel="noopener">Sleeper API</a> ·
+      <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> — unofficial fan tool</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="start">⭐ Weekly Start Advice</button>
+    <button class="tab-btn" data-tab="history">🔭 Multi-Year Explorer</button>
+    <button class="tab-btn" data-tab="backtest">🧪 Model Backtest</button>
+    <button class="tab-btn" data-tab="league">🏆 My Sleeper League</button>
+  </nav>
+
+  <!-- ============ START ADVICE ============ -->
+  <section id="tab-start" class="tab-panel active">
+    <div class="card controls">
+      <div class="control-row">
+        <label>Season <select id="selSeason"></select></label>
+        <label>Week <select id="selWeek"></select></label>
+        <label>Scoring <select id="selScoring"></select></label>
+        <label class="check"><input type="checkbox" id="chkSacks" checked> sacks count for D/ST</label>
+        <label class="check"><input type="checkbox" id="chkWeather" checked> forecast weather</label>
+        <button id="btnAnalyze" class="btn-primary">Analyze Week</button>
+      </div>
+      <div id="startStatus" class="status-line"></div>
+      <progress id="startProgress" max="100" value="0" hidden></progress>
+    </div>
+
+    <div id="faStrip" class="fa-strip" hidden></div>
+    <div id="startBanner" class="banner-row" hidden></div>
+    <div class="card table-card">
+      <table id="startTable" class="data-table">
+        <thead><tr>
+          <th>#</th><th>Defense</th><th>Matchup</th><th class="num">Proj</th>
+          <th class="num">Range¹</th><th class="num">Boom%</th><th>Opp Offense</th><th>Notes</th>
+          <th class="num" id="thActual" hidden>Actual</th>
+        </tr></thead>
+        <tbody><tr><td colspan="10" class="empty">Choose a week and hit <b>Analyze Week</b>.</td></tr></tbody>
+      </table>
+      <p class="fnote">¹ 10th–90th percentile of the simulated score distribution ·
+         Boom% = probability the defense finishes above 9 fantasy points this week.</p>
+    </div>
+
+    <div class="card method-card">
+      <details>
+        <summary>How the projection works</summary>
+        <div class="method-body">
+          <p>The engine rebuilds every defense's identity from <b>every NFL team box score since the year you load</b>
+          (via nflverse). Each team tracks per-game rates of: points allowed, sacks, takeaways forced, giveaways,
+          defensive/ST touchdowns, blocked kicks, and how often their offense gets sacked or turns it over —
+          all split by home/away, exponentially weighted toward recent games, and shrunk toward league averages so
+          small samples don't lie to you.</p>
+          <p>A matchup projection combines <b>offense quality vs. defense vulnerability</b> at that venue into an
+          expected opponent score, then Monte-Carlo simulates ~1,500 outcomes per defense: opponent point totals are
+          drawn (which set the points-allowed tier) and sacks/turnovers/defensive scores arrive as Poisson events.
+          The average across simulations — not just the mode — is what ranks the board, because tier scoring is
+          lumpy and upside matters for streamers.</p>
+          <p>Optional weather: outdoor games in the next ~9 days get wind/rain adjustments pulled live from
+          Open-Meteo (heavy wind/rain suppress expected scoring → boosts defenses).</p>
+          <p>All parameters were locked by walk-forward backtesting only on data the model could legitimately have
+          known before each week (see the Backtest tab). It does <b>not</b> know injuries, QB changes, coaching
+          tendencies or motivation — treat rankings as strong priors, not gospel.</p>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY EXPLORER ============ -->
+  <section id="tab-history" class="tab-panel">
+    <div class="card controls">
+      <div class="control-row">
+        <label>History starts <select id="selHistStart"></select></label>
+        <span class="hint">Recompute uses the scoring system selected on the Start tab.</span>
+        <button id="btnHistory" class="btn-primary">Load History</button>
+      </div>
+      <div id="histStatus" class="status-line"></div>
+      <progress id="histProgress" max="100" value="0" hidden></progress>
+    </div>
+    <div class="card table-card">
+      <h3 class="card-title">Team-by-season defense performance <span class="hint">(click headers to sort · click rows to plot)</span></h3>
+      <div class="scroll-y">
+        <table id="histTable" class="data-table dense"><thead></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="card chart-card">
+      <h3 class="card-title">Average points by season <span class="hint" id="chartHint"></span></h3>
+      <canvas id="histChart" height="260"></canvas>
+      <div id="chartLegend" class="legend"></div>
+    </div>
+  </section>
+
+  <!-- ============ BACKTEST ============ -->
+  <section id="tab-backtest" class="tab-panel">
+    <div class="card controls">
+      <div class="control-row">
+        <label>Evaluate weeks starting <select id="selBtStart"></select></label>
+        <button id="btnBacktest" class="btn-primary">Run Walk-Forward Backtest</button>
+      </div>
+      <div id="btStatus" class="status-line"></div>
+      <progress id="btProgress" max="100" value="0" hidden></progress>
+    </div>
+    <div id="btResults" hidden>
+      <div class="metric-cards" id="btCards"></div>
+      <div class="card"><h3 class="card-title">By season</h3>
+        <table id="btYears" class="data-table dense"><thead></thead><tbody></tbody></table></div>
+      <div class="card"><h3 class="card-title">Benchmarks</h3><div id="btBench"></div></div>
+      <div class="card"><h3 class="card-title">Weekly top-1 picks</h3>
+        <div class="scroll-y"><table id="btDetails" class="data-table dense"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLEEPER LEAGUE ============ -->
+  <section id="tab-league" class="tab-panel">
+    <div class="card controls">
+      <div class="control-row">
+        <label>Sleeper username <input type="text" id="inpUser" placeholder="your username"></label>
+        <button id="btnLeague" class="btn-primary">Find Leagues</button>
+      </div>
+      <div id="leagueStatus" class="status-line"></div>
+    </div>
+    <div id="leagueBody" hidden>
+      <div class="card controls">
+        <div class="control-row">
+          <label>League <select id="selLeague"></select></label>
+          <label class="check"><input type="checkbox" id="chkUseLeagueScoring" checked> use this league's scoring + show ownership</label>
+        </div>
+      </div>
+      <div class="card" id="leagueSummary"></div>
+      <div class="card"><h3 class="card-title">Who owns what defense</h3>
+        <div id="ownershipGrid" class="ownership-grid"></div></div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Built for standard/PPR redraft &amp; keeper leagues using Sleeper's virtual DEF scorables.
+       Not affiliated with the NFL or Sleeper. Ratings derived from public nflverse game data refreshed daily.</p>
+  </footer>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script src="js/model.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
