@@ -211,7 +211,7 @@ function rerenderSlate() {
         const rk = powRank.get(b.offT);
         const pw = powers.get(b.offT);
         const offLbl = rk == null ? '—'
-            : `<span class="chip ${rk <= nPow * .2 ? 'bad' : rk > nPow * .8 ? 'good' : ''}">#${rk} ${pw >= 1.12 ? 'elite' : pw >= 1.03 ? 'strong' : pw <= .9 ? 'weak' : 'avg'}</span>`;
+            : `<a href="#" class="opplog" data-team="${b.offT}" title="Click: points defenses have scored vs ${b.offT} this season">#${rk} ${pw >= 1.12 ? 'elite' : pw >= 1.03 ? 'strong' : pw <= .9 ? 'weak' : 'avg'}</a>`;
         const chips = [];
         if (b.venue === 'H') chips.push('<span class="chip">Home</span>');
         if (b.venue === 'N') chips.push(`<span class="chip neutral">${esc(INTL_VENUES[b.g.stadium]?.label || 'Neutral site')}</span>`);
@@ -275,6 +275,67 @@ function ownershipMap() {
     for (const [def, owners] of APP.leagueCtx.defsByOwner)
         if (owners.length) m.set(def, owners);
     return m;
+}
+
+/* ---------------- opponent defense-score log (click Opponent cell) ---------------- */
+function buildOppLog(team, season, cfg) {
+    const idx = new Map(APP.recsFull.map(r => [`${r.season}:${r.week}:${r.team}`, r]));
+    const games = APP.recsFull.filter(r => r.season === season && r.team === team && !r.post)
+        .sort((a, b) => a.week - b.week);
+    if (!games.length) return null;
+    // league avg D/ST that season under this scoring for context coloring
+    const seasonAll = APP.recsFull.filter(r => r.season === season && !r.post);
+    const lgAvg = meanArr(seasonAll.map(r => actualDefPoints(r, cfg)));
+    const rows = [];
+    for (const m of games) {
+        const oppDef = idx.get(`${season}:${m.week}:${m.opp}`);
+        if (!oppDef) continue;
+        rows.push({ week: m.week, venue: m.venue, opp: m.opp,
+            pts: actualDefPoints(oppDef, cfg), pa: m.pa });
+    }
+    const vals = rows.map(r => r.pts);
+    const boomN = vals.filter(v => v >= CFG.BOOM_PTS).length;
+    const summary = { n: vals.length, avg: meanArr(vals), max: Math.max(...vals),
+        boom: boomN, bust: vals.filter(v => v <= 3).length, lgAvg };
+    return { rows, summary };
+}
+function meanArr(a) { return a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0; }
+
+function renderOppLog(team, season, cfg) {
+    const log = buildOppLog(team, season, cfg);
+    if (!log) return `<div class="logbox">No completed games yet for ${team} in ${season}.</div>`;
+    const s = log.summary;
+    const chips = [`<b>${s.n} games</b>`, `D/STs avg <b>${fmt(s.avg)}</b> vs league ${fmt(s.lgAvg)}`,
+        `${s.boom} boom (≥${CFG.BOOM_PTS})`, `${s.bust} bust (≤3)`];
+    const cells = log.rows.map(r => {
+        const cls = r.pts >= CFG.BOOM_PTS ? 'pos' : r.pts <= 3 ? 'neg' : '';
+        return `<span class="log-cell" title="wk${r.week} ${r.venue === 'A' ? 'at' : r.venue === 'N' ? '*' : 'vs'} ${r.opp}, opp scored ${r.pa}">
+                <i>w${r.week}</i><u>${r.opp}</u><b class="${cls}">${fmt(r.pts, 0)}</b></span>`;
+    }).join('');
+    const lean = s.avg > s.lgAvg * 1.08 ? '<span class="chip good">soft schedule feed</span>'
+        : s.avg < s.lgAvg * .92 ? '<span class="chip bad">feeds defenses</span>' : '<span class="chip">neutral</span>';
+    return `<div class="logbox">
+      <div class="log-head"><b>${esc(teamLabel(team))}</b> offense — points their opponents' defenses just banked, ${season} ${lean}</div>
+      <div class="log-sum">${chips.join(' · ')}</div>
+      <div class="log-cells">${cells}</div>
+      <p class="fnote">Green ≥ ${CFG.BOOM_PTS} pts (boom-week material) · red ≤ 3 pts. Hover any game for venue & final score.</p></div>`;
+}
+
+function attachOppLogClicks() {
+    $('#startTable').addEventListener('click', e => {
+        const a = e.target.closest('a.opplog');
+        if (!a) return;
+        e.preventDefault();
+        const tr = a.closest('tr');
+        const existing = tr.nextElementSibling;
+        if (existing?.classList.contains('detail-row')) { existing.remove(); return; }
+        document.querySelectorAll('#startTable .detail-row').forEach(x => x.remove());
+        const season = APP.lastSlate?.season || APP.currentSeason;
+        const det = document.createElement('tr');
+        det.className = 'detail-row';
+        det.innerHTML = `<td colspan="10">${renderOppLog(a.dataset.team, season, currentCfg())}</td>`;
+        tr.after(det);
+    });
 }
 
 /* ---------------- history explorer ---------------- */
@@ -570,6 +631,7 @@ async function boot() {
     $('#selScoring').addEventListener('change', () => { rerenderSlate(); });
     $('#chkWeather').addEventListener('change', () => analyzeWeek());
     $('#btnAnalyze').addEventListener('click', () => analyzeWeek());
+    attachOppLogClicks();
     $('#selSeason').addEventListener('change', () => { refreshWeekOptions().then(() => analyzeWeek()); });
     $('#selWeek').addEventListener('change', () => analyzeWeek());
     $('#btnHistory').addEventListener('click', () => withProgress('#histProgress', loadHistory()));

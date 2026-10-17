@@ -110,3 +110,19 @@ th.num { text-align: right; }
 .method-body { color: #b6c2d4; font-size: 14px; }
 .fnote { color: #56637a; font-size: 12px; }
 footer { margin-top: 34px; color: #475569; font-size: 12.5px; text-align: center; }
+
+/* opponent season log (expandable row) */
+a.opplog { color: inherit; cursor: pointer; text-decoration: underline dotted rgba(148,163,184,.5); text-underline-offset: 3px; }
+a.opplog:hover { color: #c7d2fe; }
+.detail-row > td { background: rgba(99,102,241,.06); padding: 10px 12px !important; }
+.logbox b { color: #f1f5f9; }
+.log-head { font-size: 13.5px; margin-bottom: 2px; }
+.log-sum { font-size: 12.5px; color: #94a3b8; margin-bottom: 8px; }
+.log-cells { display: flex; flex-wrap: wrap; gap: 6px; }
+.log-cell {
+    display: inline-flex; align-items: center; gap: 4px; background: #0f172a;
+    border: 1px solid #1e293b; border-radius: 7px; padding: 3px 8px; font-size: 12.5px;
+}
+.log-cell i { font-style: normal; color: #64748b; font-size: 11px; }
+.log-cell u { text-decoration: none; color: #cbd5e1; font-weight: 600; }
+.log-cell b.pos { color: #4ade80; } .log-cell b.neg { color: #fb7185; }
