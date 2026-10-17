@@ -22,6 +22,7 @@ const CFG = {
         sims: 1500,    // Monte-Carlo draws per live projection
         btSims: 600,   // lighter sims for the backtester
         caps: { att: [0.62, 1.55], stat: [0.40, 2.1], give: [0.45, 2.0] },
+        yardsBlend: 0,   // weight of yards-rates in attack/vulnerability ratings (tuned via Backtest)
     },
     WEATHER: {
         // modifiers applied to EXPECTED OPPONENT POINTS (lower = better for D/ST)

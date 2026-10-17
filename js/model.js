@@ -34,14 +34,14 @@ function mulberry32unit() {
     };
 }
 
-const FEATS = ['pf', 'pa', 'sk', 'to_int', 'to_ff', 'to_fr', 'tdf', 'blk', 'sf_sack', 'off_to'];
+const FEATS = ['pf', 'pa', 'sk', 'to_int', 'to_ff', 'to_fr', 'tdf', 'blk', 'sf_sack', 'off_to', 'ydsA', 'ydsF'];
 const LN2 = Math.log(2);
 
 function featFromRec(r) {
     return {
         pf: r.pf, pa: r.pa, sk: r.d_sacks, to_int: r.d_int, to_ff: r.d_ff,
         to_fr: r.d_fr, tdf: r.d_td + r.st_td, blk: r.d_blk,
-        sf_sack: r.sackSuf, off_to: r.give,
+        sf_sack: r.sackSuf, off_to: r.give, ydsA: r.ydsA, ydsF: r.ydsF,
     };
 }
 
@@ -157,8 +157,18 @@ function predictParams(tr, K, Kv, defT, offT, venue) {
     const tso = f => tr.teamStat(offT, f, oV, K, Kv);
     const mu = tr.venueAvgPts(venue === 'N' ? '' : venue);
     const lgPa = tr.lgMean('pa') || 22, lgPf = tr.lgMean('pf') || 22;
-    const attR = clamp(tso('pf') / lgPf, ...M.att);
-    const defR = clamp(tsd('pa') / lgPa, ...M.att);
+    // Points-vs-yards blend: yardage rates are noisier-free estimates of true unit
+    // quality (points allowed carry red-zone/garbage-time luck). W=0 → points only.
+    const W = CFG.MODEL.yardsBlend || 0;
+    let attR, defR;
+    if (W > 0) {
+        const lgYf = tr.lgMean('ydsF') || 345, lgYa = tr.lgMean('ydsA') || 345;
+        attR = clamp(Math.exp((1 - W) * Math.log(tso('pf') / lgPf) + W * Math.log(clamp(tso('ydsF') / lgYf, .5, 1.8))), ...M.att);
+        defR = clamp(Math.exp((1 - W) * Math.log(tsd('pa') / lgPa) + W * Math.log(clamp(tsd('ydsA') / lgYa, .5, 1.8))), ...M.att);
+    } else {
+        attR = clamp(tso('pf') / lgPf, ...M.att);
+        defR = clamp(tsd('pa') / lgPa, ...M.att);
+    }
     const expOpp = mu * attR * defR;
 
     const lgSK = tr.lgMean('sk') || 2.2, lgInt = tr.lgMean('to_int') || 1.1;

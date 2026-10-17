@@ -128,6 +128,7 @@ function buildRecords(statsBySeason) {
                     give: row.oi + row.ol, sackSuf: row.osk, att: row.oa,
                     playsF: row.oa + row.osk + row.opc,
                     ydsF: row.opy + row.ory + row.osy,
+                    ydsA: o.opy + o.ory + o.osy,
                     d_sacks: row.dsk, d_int: o.oi, d_ff: row.dff, d_fr: o.ol,
                     d_td: row.dtd, st_td: row.std, d_safe: row.dsa, d_blk: row.dbk,
                 });
