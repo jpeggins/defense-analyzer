@@ -58,7 +58,7 @@ function ensureYear(season) {
     if (YDB.done.has(season)) return Promise.resolve(true);
     if (YDB.busy.has(season)) return YDB.busy.get(season);
     const p = (async () => {
-        const gkey = `ds:g:${season}:v2`, skey = `ds:s:${season}:v2`;
+        const gkey = `ds:g:${season}:v3`, skey = `ds:s:${season}:v3`;
         let games = [];
         try { games = await loadOnce(gkey, () => `${CFG.DATA.local}games_${season}.json.gz`); }
         catch (e) { console.warn(`no games for ${season}`, e.message); }
@@ -75,7 +75,7 @@ function ensureYear(season) {
 }
 /* Games rows only (for schedule questions like week pickers without history). */
 async function loadSeasonGames(season) {
-    try { return await loadOnce(`ds:g:${season}:v2`, () => `${CFG.DATA.local}games_${season}.json.gz`); }
+    try { return await loadOnce(`ds:g:${season}:v3`, () => `${CFG.DATA.local}games_${season}.json.gz`); }
     catch (e) { return []; }
 }
 async function ensureYears(from, to, onProgress) {
@@ -120,10 +120,15 @@ function buildRecords(statsBySeason) {
                 [g.away, a, h, 'A', g.as, g.hs],
                 [g.home, h, a, 'H', g.hs, g.as],
             ]) {
+                const dHi = row.dh || 0, oppHi = o.dh || 0;
                 recs.push({
                     season: g.season, week: g.week, date: g.date,
                     team: t, opp: t === g.away ? g.home : g.away,
                     venue: neutral ? 'N' : venue, roof: g.roof, stadium: g.stadium,
+                    d_hit: dHi,                                   // hits by THIS defense
+                    def_drops: (o.oa + o.osk) || 0,              // dropbacks this defense faced
+                    off_press: oppHi,                            // times THIS offense was pressured
+                    off_drops: (row.oa + row.osk) || 0,          // this offense's own dropbacks
                     pf, pa,
                     give: row.oi + row.ol, sackSuf: row.osk, att: row.oa,
                     playsF: row.oa + row.osk + row.opc,

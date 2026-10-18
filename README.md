@@ -46,6 +46,12 @@ opponent score (Normal σ = 8.5) through the tier step-function, with Poisson ar
 and Bernoulli defensive-TD/blocked-kick bonuses. The mean across simulations ranks the board — because
 tier curves make *variance* tradeable and streamers eat well on variance.
 
+**Pressure tracking**: each team also carries QB hits + sacks per opposing dropback (pressure rate), plus how
+often their own offense takes pressure and how much of that becomes sacks (a QB-escape/O-line proxy). These
+power the ⚡ pass-rush chips, the opponent-log pressure line, and an Explorer column — but they are display-only:
+a pressure→sack-conversion projection was A/B-tested walk-forward and did not beat the direct sack-rate
+estimator (ρ .235 → .230 with blending), so it stays out of the EV math, same discipline as yardage features.
+
 Optional live weather (Open-Meteo) nudges expected opponent scoring down for windy/rainy outdoor games in
 the next ~9 days — defenses eat shootout forecasts for breakfast.
 

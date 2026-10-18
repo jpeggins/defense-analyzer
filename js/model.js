@@ -34,7 +34,8 @@ function mulberry32unit() {
     };
 }
 
-const FEATS = ['pf', 'pa', 'sk', 'to_int', 'to_ff', 'to_fr', 'tdf', 'blk', 'sf_sack', 'off_to', 'ydsA', 'ydsF'];
+const FEATS = ['pf', 'pa', 'sk', 'to_int', 'to_ff', 'to_fr', 'tdf', 'blk', 'sf_sack', 'off_to', 'ydsA', 'ydsF',
+    'dh', 'dpd', 'opress', 'opdb'];
 const LN2 = Math.log(2);
 
 function featFromRec(r) {
@@ -42,6 +43,7 @@ function featFromRec(r) {
         pf: r.pf, pa: r.pa, sk: r.d_sacks, to_int: r.d_int, to_ff: r.d_ff,
         to_fr: r.d_fr, tdf: r.d_td + r.st_td, blk: r.d_blk,
         sf_sack: r.sackSuf, off_to: r.give, ydsA: r.ydsA, ydsF: r.ydsF,
+        dh: r.d_hit || 0, dpd: r.def_drops || 0, opress: r.off_press || 0, opdb: r.off_drops || 0,
     };
 }
 
@@ -183,11 +185,25 @@ function predictParams(tr, K, Kv, defT, offT, venue) {
     const gSack = clamp(tso('sf_sack') / lgSuf, ...M.give);
     const tdfR = clamp(tr.teamStat(defT, 'tdf', '', K, Kv) / lgTdf, ...M.stat);
     const blkR = clamp(tr.teamStat(defT, 'blk', '', K, Kv) / lgBlk, ...M.stat);
+
+    // Pressure rate (hits+sacks per dropback) is tracked and shown as context, but a
+    // pressure→conversion projection of sacks was tested against the walk-forward gauntlet
+    // and did not beat the direct sack-rate estimator (ρ and top-1 hit-rate were flat-to-down
+    // at every blend weight), so it stays OUT of the engine. See model note in README.
+    const expSk = lgSK * dSk * gSack;
+    // Diagnostic only (UI): this defense's weighted pressure rate vs the league.
+    let pressRate = 0, pressRankRatio = 1;
+    if ((tr.lgMean('dh') || 0) > 0.3 && (tr.lgMean('dpd') || 0) > 10) {
+        const rd = (a, b, fb) => (b > 3 ? a / b : fb);
+        const lgPress = ((tr.lgMean('dh') || 0) + lgSK) / (tr.lgMean('dpd') || 31);
+        pressRate = rd(tsd('dh') + tsd('sk'), tsd('dpd'), lgPress);
+        pressRankRatio = pressRate / lgPress;
+    }
     return {
-        expOpp, expSk: lgSK * dSk * gSack, expInt: lgInt * dInt * gGive,
+        expOpp, expSk, expInt: lgInt * dInt * gGive,
         expFR: lgFr * dFf * gGive, expFF: lgFF * dFf * gGive,
         pTD: clamp(tdfR * 0.03, 0.008, 0.10), pBlk: clamp(blkR * 0.05, 0.01, 0.09),
-        attR, defR,
+        attR, defR, pressRate, pressRankRatio,
     };
 }
 

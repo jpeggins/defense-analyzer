@@ -76,6 +76,7 @@ def stats_rows(season):
             "opy": NUM(r["passing_yards"]), "ory": NUM(r["rushing_yards"]), "osy": NUM(r["sack_yards_lost"]),
             "opc": NUM(r["carries"]),
             "dsk": NUM(r["def_sacks"]), "din": NUM(r["def_interceptions"]), "dff": NUM(r["def_fumbles_forced"]),
+            "dh": NUM(r["def_qb_hits"]),
             "dtd": NUM(r["def_tds"]), "std": NUM(r["special_teams_tds"]), "dsa": NUM(r["def_safeties"]),
             "dbk": NUM(r["fg_blocked"]) + NUM(r["pat_blocked"]),
         })
@@ -91,8 +92,21 @@ def dump_json_gz(path, obj):
     return True
 
 
+SCHEMA = 2
+
+def existing_schema():
+    path = os.path.join(DATA, "meta.json.gz")
+    if not os.path.exists(path):
+        return SCHEMA          # nothing yet -> treated fresh
+    try:
+        return json.loads(gzip.decompress(open(path, "rb").read()).decode()).get("schema", 1)
+    except Exception:
+        return 1
+
+
 def main():
     os.makedirs(DATA, exist_ok=True)
+    force_all = existing_schema() < SCHEMA
     gseasons = games_by_season()
     cur = max(gseasons)                       # latest regular season in data
     changed = []
@@ -102,20 +116,21 @@ def main():
             continue
         past_file = os.path.join(DATA, f"games_{season}.json.gz")
         active = season >= cur - 1            # current season (+playoff tail safety margin)
-        if os.path.exists(past_file) and not active:
+        if os.path.exists(past_file) and not active and not force_all:
             continue
         if dump_json_gz(past_file, gseasons[season]):
             changed.append(f"games_{season}")
 
         sfile = os.path.join(DATA, f"stats_{season}.json.gz")
-        if os.path.exists(sfile) and not active:
+        if os.path.exists(sfile) and not active and not force_all:
             continue
         rows = stats_rows(season)
         if rows is not None and dump_json_gz(sfile, rows):
             changed.append(f"stats_{season}")
 
     import datetime
-    meta = {"updated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="minutes")}
+    meta = {"updated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="minutes"),
+            "schema": SCHEMA}
     if dump_json_gz(os.path.join(DATA, "meta.json.gz"), meta):
         changed.append("meta")
 

@@ -198,6 +198,19 @@ function rerenderSlate() {
     const powRank = new Map(sortedPow.map(([t], i) => [t, i + 1]));
     const nPow = sortedPow.length || 30;
 
+    // pass-rush pressure-rate ranks (hits+sacks per opposing dropback, history-weighted)
+    const prates = new Map();
+    for (const t of APP.lastTracker?.teams?.keys() || []) {
+        const h = tr.teamStat(t, 'dh', '', CFG.MODEL.K, CFG.MODEL.Kv);
+        const d = tr.teamStat(t, 'dpd', '', CFG.MODEL.K, CFG.MODEL.Kv);
+        const s = tr.teamStat(t, 'sk', '', CFG.MODEL.K, CFG.MODEL.Kv);
+        if (h == null || s == null || d == null || d < 8) continue;
+        prates.set(t, (h + s) / d * 100);
+    }
+    const sortedPr = [...prates.entries()].sort((a, b) => b[1] - a[1]);
+    const prRank = new Map(sortedPr.map(([t], i) => [t, i + 1]));
+    const nPr = sortedPr.length || 32;
+
     // median/pool context
     const med = (() => { const e = bundles.map(b => b.ev).sort((a, b) => a - b);
         return e.length % 2 ? e[(e.length - 1) / 2] : (e[e.length / 2 - 1] + e[e.length / 2]) / 2; })();
@@ -213,6 +226,11 @@ function rerenderSlate() {
         const offLbl = rk == null ? '—'
             : `<a href="#" class="opplog" data-team="${b.offT}" title="Click: points defenses have scored vs ${b.offT} this season">#${rk} ${pw >= 1.12 ? 'elite' : pw >= 1.03 ? 'strong' : pw <= .9 ? 'weak' : 'avg'}</a>`;
         const chips = [];
+        const prate = prates.get(b.defT), prank = prRank.get(b.defT);
+        if (prate > 0) {
+            const pcls = prank <= Math.ceil(nPr * .25) ? 'good' : prank > Math.floor(nPr * .75) ? 'bad' : '';
+            chips.push(`<span class="chip ${pcls}" title="Pass rush: this defense pressures the QB on ${prate.toFixed(0)}% of opposing dropbacks (recent-form weighted) · rank ${prank} of ${nPr}">⚡ ${prate.toFixed(0)}%</span>`);
+        }
         if (b.venue === 'H') chips.push('<span class="chip">Home</span>');
         if (b.venue === 'N') chips.push(`<span class="chip neutral">${esc(INTL_VENUES[b.g.stadium]?.label || 'Neutral site')}</span>`);
         if (b.wx && b.wx.f < 1) chips.push(`<span class="chip good" title="expected opponent scoring reduced ${(1 - b.wx.f) * 100 | 0}%">🌬️ ${fmt(b.wx.wind, 0)} mph${b.wx.rain >= 5 ? ' 🌧️' : ''}</span>`);
@@ -295,8 +313,18 @@ function buildOppLog(team, season, cfg) {
     }
     const vals = rows.map(r => r.pts);
     const boomN = vals.filter(v => v >= CFG.BOOM_PTS).length;
+    // pressure profile of THIS offense's QB(s): how often they're hit, and how much
+    // of that heat actually becomes sacks (escape ability / O-line quality proxy)
+    let ph = 0, pd = 0, psk = 0;
+    for (const m of games) { ph += m.off_press || 0; pd += m.off_drops || 0; psk += m.sackSuf || 0; }
+    let lp = 0, ld = 0, ls = 0;
+    for (const r of seasonAll) { lp += r.off_press || 0; ld += r.off_drops || 0; ls += r.sackSuf || 0; }
     const summary = { n: vals.length, avg: meanArr(vals), max: Math.max(...vals),
-        boom: boomN, bust: vals.filter(v => v <= 3).length, lgAvg };
+        boom: boomN, bust: vals.filter(v => v <= 3).length, lgAvg,
+        pressPct: pd > 30 ? 100 * (ph + psk) / pd : null,
+        lgPressPct: ld ? 100 * (lp + ls) / ld : null,
+        convPct: ph + psk > 8 ? 100 * psk / (ph + psk) : null,
+        lgConvPct: lp + ls ? 100 * ls / (lp + ls) : null };
     return { rows, summary };
 }
 function meanArr(a) { return a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0; }
@@ -317,6 +345,7 @@ function renderOppLog(team, season, cfg) {
     return `<div class="logbox">
       <div class="log-head"><b>${esc(teamLabel(team))}</b> offense — fantasy points given up to opposing defenses, ${season} ${lean}</div>
       <div class="log-sum">${chips.join(' · ')}</div>
+      ${s.pressPct != null ? `<div class="log-sum dim" title="Share of dropbacks where their QB was hit or sacked, and what fraction of those pressures ended in a sack — low conversion usually means a scrambling QB or a forgiving offensive line">🌀 QB pressured on <b>${s.pressPct.toFixed(0)}%</b> of dropbacks (league ${(s.lgPressPct ?? 0).toFixed(0)}%)${s.convPct != null ? ` · pressure became a sack <b>${s.convPct.toFixed(0)}%</b> of the time (league ${(s.lgConvPct ?? 0).toFixed(0)}%)` : ''}</div>` : ''}
       <div class="log-cells">${cells}</div>
       <p class="fnote">Green ≥ ${CFG.BOOM_PTS} pts (boom-week material) · red ≤ 3 pts. Hover any game for venue & final score.</p></div>`;
 }
@@ -344,7 +373,8 @@ const HIST_COLS = [
     ['gp', 'GP', v => v], ['avg', 'Avg', v => fmt(v)], ['pts', 'Pts', v => fmt(v)],
     ['hAvg', 'Home', v => fmt(v)], ['aAvg', 'Away', v => fmt(v)],
     ['best', 'Best wk', v => fmt(v)], ['top5', 'Top5wk', v => v], ['top10', 'Top10wk', v => v],
-    ['to', 'TO/g', v => fmt(v, 2)], ['sk', 'Sack/g', v => fmt(v, 1)], ['td', 'D/ST TDs', v => v],
+    ['to', 'TO/g', v => fmt(v, 2)], ['sk', 'Sack/g', v => fmt(v, 1)],
+    ['press', 'Prss%', v => (v * 100).toFixed(1) + '%'], ['td', 'D/ST TDs', v => v],
 ];
 let histSort = { key: 'season', dir: -1 };
 const histSelected = new Set();
@@ -382,16 +412,17 @@ function aggregateHistory(cfg) {
     for (const { r, pts } of withPts) {
         const key = r.season + '|' + r.team;
         let a = agg.get(key);
-        if (!a) agg.set(key, a = { season: r.season, team: r.team, gp: 0, pts: 0, hp: 0, hn: 0, ap: 0, an: 0, best: -99, top5: 0, top10: 0, to: 0, sk: 0, td: 0 });
+        if (!a) agg.set(key, a = { season: r.season, team: r.team, gp: 0, pts: 0, hp: 0, hn: 0, ap: 0, an: 0, best: -99, top5: 0, top10: 0, to: 0, sk: 0, td: 0, pnum: 0, pden: 0 });
         const t = topK.get(r.season + ':' + r.week);
         a.gp++; a.pts += pts; a.best = Math.max(a.best, pts);
         if (r.venue === 'H') { a.hp += pts; a.hn++; } else if (r.venue === 'A') { a.ap += pts; a.an++; }
         if (pts >= t.k5) a.top5++; if (pts >= t.k10) a.top10++;
         a.to += r.d_int + r.d_fr; a.sk += r.d_sacks; a.td += r.d_td + r.st_td;
+        a.pnum += (r.d_hit || 0) + r.d_sacks; a.pden += r.def_drops || 0;
     }
     const rows = [...agg.values()].map(a => ({
         ...a, avg: a.pts / a.gp, hAvg: a.hn ? a.hp / a.hn : NaN, aAvg: a.an ? a.ap / a.an : NaN,
-        to: a.to / a.gp, sk: a.sk / a.gp,
+        to: a.to / a.gp, sk: a.sk / a.gp, press: a.pden > 20 ? a.pnum / a.pden : NaN,
     })).sort((a, b) => b.season - a.season || b.avg - a.avg);
     const leagueAvg = new Map();
     for (const s of rows) leagueAvg.set(s.season, (leagueAvg.get(s.season) || 0) + s.avg);
