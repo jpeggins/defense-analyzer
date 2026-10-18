@@ -48,9 +48,12 @@ tier curves make *variance* tradeable and streamers eat well on variance.
 
 **Pressure tracking**: each team also carries QB hits + sacks per opposing dropback (pressure rate), plus how
 often their own offense takes pressure and how much of that becomes sacks (a QB-escape/O-line proxy). These
-power the ⚡ pass-rush chips, the opponent-log pressure line, and an Explorer column — but they are display-only:
-a pressure→sack-conversion projection was A/B-tested walk-forward and did not beat the direct sack-rate
-estimator (ρ .235 → .230 with blending), so it stays out of the EV math, same discipline as yardage features.
+power the ⚡ chips, the opponent-log pressure line, and an Explorer column — and the pressure matchup now also
+corrects the *points* pathway (attack/vulnerability ratings adjusted by exponent `pressPtsW` = 0.2): validated
+walk-forward (points-rank ρ .2765 → .2811 pooled; fantasy backtest top-3 lift +2.68 → +2.81, #1-hit-rate
+67% → 68%). But sacks themselves stay projected by raw weighted sack rates — a pressure→conversion reroute
+was tested and underperformed (.193 → .181 next-game sack ρ): once 45-week-decayed sack history is in play,
+hit volume adds mostly noise to that channel. Different channels, different verdicts — both measured, neither assumed.
 
 Optional live weather (Open-Meteo) nudges expected opponent scoring down for windy/rainy outdoor games in
 the next ~9 days — defenses eat shootout forecasts for breakfast.

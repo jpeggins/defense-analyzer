@@ -23,6 +23,7 @@ const CFG = {
         btSims: 600,   // lighter sims for the backtester
         caps: { att: [0.62, 1.55], stat: [0.40, 2.1], give: [0.45, 2.0] },
         yardsBlend: 0,   // weight of yards-rates in attack/vulnerability ratings (tuned via Backtest)
+        pressPtsW: .2,   // pressure-correction exponent on points pathway (validated: pts-rank ρ .2765→.2811 pooled; fantasy backtest below)
     },
     WEATHER: {
         // modifiers applied to EXPECTED OPPONENT POINTS (lower = better for D/ST)

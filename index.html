@@ -72,8 +72,10 @@
           <p>Every team also carries a <b>pressure rate</b> — QB hits + sacks per opposing dropback — shown as pass-rush
           context (the <b>⚡</b> chip), as a sortable Multi-Year Explorer column, and inside opponent logs next to how much
           of the heat their QB actually lets become sacks (low conversion ≈ scramble escape artist or a soft rush).
-          Pressure stays deliberately OUT of the projected-points math: projecting sacks through a pressure→conversion
-          model did not beat the direct sack-rate estimator in walk-forward testing, so it informs your eye, not the EV.</p>
+          Pressure enters the projections where testing says it belongs: the pressure matchup nudges <b>expected opponent
+          scoring</b> (walk-forward validated — points-ranking ρ .2765→.2811, weekly streamer lift +2.68→+2.81), while raw
+          recent sack rates stay in charge of expected sacks — routing sack counts through hit totals diluted rather than
+          helped, and Explorer logs show why: much of what hits know, late-season sack trends already figured out.</p>
           <p>Optional weather: outdoor games in the next ~9 days get wind/rain adjustments pulled live from
           Open-Meteo (heavy wind/rain suppress expected scoring → boosts defenses).</p>
           <p>All parameters were locked by walk-forward backtesting only on data the model could legitimately have

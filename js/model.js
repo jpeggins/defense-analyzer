@@ -171,6 +171,19 @@ function predictParams(tr, K, Kv, defT, offT, venue) {
         attR = clamp(tso('pf') / lgPf, ...M.att);
         defR = clamp(tsd('pa') / lgPa, ...M.att);
     }
+    // Pressure correction on the POINTS pathway (CFG.MODEL.pressPtsW): offenses that
+    // chronically survive little pressure score less going forward; defenses that
+    // generate heavy pressure allow less. Distinct from raw scoring stats (which lag
+    // O-line/rush-quality regime changes). Validated on walk-forward points-ranking ρ.
+    const WPt = CFG.MODEL.pressPtsW || 0;
+    if (WPt > 0 && (tr.lgMean('dpd') || 0) > 10 && (tr.lgMean('dh') || 0) > .3) {
+        const lgPr = ((tr.lgMean('dh') || 0) + (tr.lgMean('sk') || 2.2)) / (tr.lgMean('dpd') || 31);
+        const pdiv = (a, b, fb) => (b > 6 ? a / b : fb);
+        const rD = clamp(pdiv(tsd('dh') + tsd('sk'), tsd('dpd'), lgPr) / lgPr, .5, 1.9);
+        const rV = clamp(pdiv(tso('opress') + tso('sf_sack'), tso('opdb'), lgPr) / lgPr, .5, 1.9);
+        attR = clamp(attR * Math.pow(rV, -WPt), ...M.att);
+        defR = clamp(defR * Math.pow(rD, -WPt), ...M.att);
+    }
     const expOpp = mu * attR * defR;
 
     const lgSK = tr.lgMean('sk') || 2.2, lgInt = tr.lgMean('to_int') || 1.1;
@@ -186,10 +199,11 @@ function predictParams(tr, K, Kv, defT, offT, venue) {
     const tdfR = clamp(tr.teamStat(defT, 'tdf', '', K, Kv) / lgTdf, ...M.stat);
     const blkR = clamp(tr.teamStat(defT, 'blk', '', K, Kv) / lgBlk, ...M.stat);
 
-    // Pressure rate (hits+sacks per dropback) is tracked and shown as context, but a
-    // pressure→conversion projection of sacks was tested against the walk-forward gauntlet
-    // and did not beat the direct sack-rate estimator (ρ and top-1 hit-rate were flat-to-down
-    // at every blend weight), so it stays OUT of the engine. See model note in README.
+    // Pressure rate (hits+sacks per dropback) is tracked and shown as context. A
+    // pressure→conversion projection of SACKS specifically was tested walk-forward and did
+    // not beat the direct sack-rate estimator for next-game sacks (.193 vs .181 ρ), so sacks
+    // keep their raw-rate estimate. The pressure MATCHUP still shapes scoring expectations —
+    // see the pressPtsW correction on attR/defR above.
     const expSk = lgSK * dSk * gSack;
     // Diagnostic only (UI): this defense's weighted pressure rate vs the league.
     let pressRate = 0, pressRankRatio = 1;
