@@ -312,10 +312,10 @@ function renderOppLog(team, season, cfg) {
         return `<span class="log-cell" title="wk${r.week} ${r.venue === 'A' ? 'at' : r.venue === 'N' ? '*' : 'vs'} ${r.opp}, opp scored ${r.pa}">
                 <i>w${r.week}</i><u>${r.opp}</u><b class="${cls}">${fmt(r.pts, 0)}</b></span>`;
     }).join('');
-    const lean = s.avg > s.lgAvg * 1.08 ? '<span class="chip good">soft schedule feed</span>'
-        : s.avg < s.lgAvg * .92 ? '<span class="chip bad">feeds defenses</span>' : '<span class="chip">neutral</span>';
+    const lean = s.avg > s.lgAvg * 1.08 ? '<span class="chip good">gives up extra pts to Ds</span>'
+        : s.avg < s.lgAvg * .92 ? '<span class="chip bad">holds opposing Ds quiet</span>' : '<span class="chip">league-average</span>';
     return `<div class="logbox">
-      <div class="log-head"><b>${esc(teamLabel(team))}</b> offense — points their opponents' defenses just banked, ${season} ${lean}</div>
+      <div class="log-head"><b>${esc(teamLabel(team))}</b> offense — fantasy points given up to opposing defenses, ${season} ${lean}</div>
       <div class="log-sum">${chips.join(' · ')}</div>
       <div class="log-cells">${cells}</div>
       <p class="fnote">Green ≥ ${CFG.BOOM_PTS} pts (boom-week material) · red ≤ 3 pts. Hover any game for venue & final score.</p></div>`;
